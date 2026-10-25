@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ashwin Devi Srinivasan <ashwin@ashds.dev>
+Date: Sun, 25 Oct 2026 20:27:32 +0400
+Subject: [PATCH] Fail reprocessing when the virtual camera is missing
+
+Photos are encoded through the HAL's virtual camera (100 for the back,
+101 for the front). When the HAL does not list it, the app gets -1 as
+its id, and opening that throws IllegalArgumentException on the
+reprocess thread, which kills the app on every shot. Catch it and fail
+the queued photos the way a failed reprocess capture does.
+---
+ .../impl/VirtualCameraReprocessor.smali       | 68 ++++++++++++++++++-
+ 1 file changed, 67 insertions(+), 1 deletion(-)
+
+diff --git a/smali_classes2/com/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor.smali b/smali_classes2/com/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor.smali
+index 538483f5..443e015e 100644
+--- a/smali_classes2/com/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor.smali
++++ b/smali_classes2/com/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor.smali
+@@ -1760,7 +1760,7 @@
+ .end method
+ 
+ .method private openVTCamera(Ljava/lang/String;)V
+-    .locals 3
++    .locals 4
+ 
+     .line 1
+     sget-object v0, Lcom/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor;->TAG:Ljava/lang/String;
+@@ -1794,6 +1794,7 @@
+     invoke-virtual {v0, p1, v1, v2}, Landroid/hardware/camera2/CameraManager;->openCamera(Ljava/lang/String;Landroid/hardware/camera2/CameraDevice$StateCallback;Landroid/os/Handler;)V
+     :try_end_0
+     .catch Landroid/hardware/camera2/CameraAccessException; {:try_start_0 .. :try_end_0} :catch_0
++    .catch Ljava/lang/IllegalArgumentException; {:try_start_0 .. :try_end_0} :catch_vt_id
+ 
+     goto :goto_0
+ 
+@@ -1807,6 +1808,71 @@
+ 
+     invoke-static {v0, v1, p1}, Landroid/util/Log;->e(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)I
+ 
++    goto :goto_0
++
++    # The HAL does not list this virtual camera, so no queued task can
++    # ever be reprocessed. Fail them all, as a failed capture does.
++    :catch_vt_id
++    move-exception p1
++
++    sget-object v0, Lcom/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor;->TAG:Ljava/lang/String;
++
++    const-string v1, "openVTCamera: no such camera, failing pending tasks"
++
++    invoke-static {v0, v1, p1}, Landroid/util/Log;->e(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)I
++
++    const/4 v0, 0x0
++
++    iput-boolean v0, p0, Lcom/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor;->mCreatingReprocessSession:Z
++
++    invoke-virtual {p1}, Ljava/lang/Throwable;->getMessage()Ljava/lang/String;
++
++    move-result-object p1
++
++    :goto_vt_id
++    iget-object v0, p0, Lcom/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor;->mTaskDataList:Ljava/util/LinkedList;
++
++    invoke-virtual {v0}, Ljava/util/LinkedList;->poll()Ljava/lang/Object;
++
++    move-result-object v0
++
++    check-cast v0, Lcom/xiaomi/camera/imagecodec/ReprocessData;
++
++    if-eqz v0, :cond_vt_id
++
++    invoke-virtual {v0}, Lcom/xiaomi/camera/imagecodec/ReprocessData;->getMainImage()Ljava/util/ArrayList;
++
++    move-result-object v1
++
++    const/4 v2, 0x0
++
++    invoke-virtual {v1, v2}, Ljava/util/ArrayList;->get(I)Ljava/lang/Object;
++
++    move-result-object v1
++
++    check-cast v1, Landroid/media/Image;
++
++    invoke-static {}, Lcom/xiaomi/camera/imagecodec/ImagePool;->getInstance()Lcom/xiaomi/camera/imagecodec/ImagePool;
++
++    move-result-object v2
++
++    invoke-virtual {v2, v1}, Lcom/xiaomi/camera/imagecodec/ImagePool;->releaseImage(Landroid/media/Image;)V
++
++    invoke-virtual {v0}, Lcom/xiaomi/camera/imagecodec/ReprocessData;->getResultListener()Lcom/xiaomi/camera/imagecodec/ReprocessData$OnDataAvailableListener;
++
++    move-result-object v1
++
++    invoke-virtual {v0}, Lcom/xiaomi/camera/imagecodec/ReprocessData;->getImageTag()Ljava/lang/String;
++
++    move-result-object v3
++
++    invoke-interface {v1, p1, v3}, Lcom/xiaomi/camera/imagecodec/ReprocessData$OnDataAvailableListener;->onError(Ljava/lang/String;Ljava/lang/String;)V
++
++    goto :goto_vt_id
++
++    :cond_vt_id
++    invoke-direct {p0}, Lcom/xiaomi/camera/imagecodec/impl/VirtualCameraReprocessor;->sendReprocessRequest()V
++
+     :goto_0
+     return-void
+ .end method
