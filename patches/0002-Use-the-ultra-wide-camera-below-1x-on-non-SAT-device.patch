@@ -3,17 +3,17 @@ From: Ashwin Devi Srinivasan <ashwin@ashds.dev>
 Date: Wed, 21 Oct 2026 09:12:46 +0000
 Subject: [PATCH] Use the ultra-wide camera below 1x on non-SAT devices
 
-Auto and Video only switch lenses through the SAT or bokeh logical
-cameras. When the HAL exposes neither, a sub-1x zoom stays on the main
-camera and requests a crop larger than its sensor, which the ISP
-rejects. Open the standalone ultra-wide camera instead and scale the
-zoom to its own field of view, as Pro mode already does.
+Auto, Video and short video only switch lenses through the SAT or
+bokeh logical cameras. When the HAL exposes neither, a sub-1x zoom
+stays on the main camera and requests a crop larger than its sensor,
+which the ISP rejects. Open the standalone ultra-wide camera instead
+and scale the zoom to its own field of view, as Pro mode already does.
 
 diff --git a/smali/com/android/camera/module/BaseModule.smali b/smali/com/android/camera/module/BaseModule.smali
-index 4c73cd13..d0c03f42 100644
+index 4c73cd13..22f89bdc 100644
 --- a/smali/com/android/camera/module/BaseModule.smali
 +++ b/smali/com/android/camera/module/BaseModule.smali
-@@ -531,6 +531,52 @@
+@@ -531,6 +531,56 @@
      :cond_0
      sget-boolean v0, Lcom/android/camera/HybridZoomingSystem;->IS_3_OR_MORE_SAT:Z
  
@@ -22,6 +22,10 @@ index 4c73cd13..d0c03f42 100644
 +    iget v0, p0, Lcom/android/camera/module/BaseModule;->mModuleIndex:I
 +
 +    const/16 v1, 0xa3
++
++    if-eq v0, v1, :cond_uw_cam
++
++    const/16 v1, 0xa1
 +
 +    if-eq v0, v1, :cond_uw_cam
 +
@@ -67,14 +71,18 @@ index 4c73cd13..d0c03f42 100644
  
      invoke-direct {p0}, Lcom/android/camera/module/BaseModule;->isZoomRatioConversionRequired()Z
 diff --git a/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali b/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali
-index b0d5098e..7054a160 100644
+index b0d5098e..52572133 100644
 --- a/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali
 +++ b/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali
-@@ -665,6 +665,37 @@
+@@ -665,6 +665,41 @@
  
      if-eq p2, v5, :cond_4
  
 +    const/16 v4, 0xa3
++
++    if-eq p2, v4, :cond_uw_0
++
++    const/16 v4, 0xa1
 +
 +    if-eq p2, v4, :cond_uw_0
 +
