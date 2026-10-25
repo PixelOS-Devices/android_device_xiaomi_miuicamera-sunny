@@ -3,92 +3,22 @@ From: Ashwin Devi Srinivasan <ashwin@ashds.dev>
 Date: Wed, 21 Oct 2026 09:12:46 +0000
 Subject: [PATCH] Use the ultra-wide camera below 1x on non-SAT devices
 
-Auto, Video and short video only switch lenses through the SAT or
-bokeh logical cameras. When the HAL exposes neither, a sub-1x zoom
-stays on the main camera and requests a crop larger than its sensor,
-which the ISP rejects. Open the standalone ultra-wide camera instead
-and scale the zoom to its own field of view, as Pro mode already does.
+MIUI Camera switches to the ultra-wide below 1x through the SAT or
+bokeh logical cameras. When the HAL exposes neither, every mode that
+offers a sub-1x zoom stays on the main camera and requests a crop
+larger than its sensor, which the ISP rejects. Open the standalone
+ultra-wide camera whenever the mode's saved zoom is below 1x. The
+app's existing zoom conversion then scales the ratio to the
+ultra-wide's field of view.
 
-diff --git a/smali/com/android/camera/module/BaseModule.smali b/smali/com/android/camera/module/BaseModule.smali
-index 4c73cd13..22f89bdc 100644
---- a/smali/com/android/camera/module/BaseModule.smali
-+++ b/smali/com/android/camera/module/BaseModule.smali
-@@ -531,6 +531,56 @@
-     :cond_0
-     sget-boolean v0, Lcom/android/camera/HybridZoomingSystem;->IS_3_OR_MORE_SAT:Z
- 
-+    if-nez v0, :cond_uw_sat
-+
-+    iget v0, p0, Lcom/android/camera/module/BaseModule;->mModuleIndex:I
-+
-+    const/16 v1, 0xa3
-+
-+    if-eq v0, v1, :cond_uw_cam
-+
-+    const/16 v1, 0xa1
-+
-+    if-eq v0, v1, :cond_uw_cam
-+
-+    const/16 v1, 0xa2
-+
-+    if-ne v0, v1, :cond_uw_sat
-+
-+    :cond_uw_cam
-+    iget v0, p0, Lcom/android/camera/module/BaseModule;->mActualCameraId:I
-+
-+    invoke-static {}, Lcom/android/camera/module/loader/camera2/Camera2DataContainer;->getInstance()Lcom/android/camera/module/loader/camera2/Camera2DataContainer;
-+
-+    move-result-object v1
-+
-+    invoke-virtual {v1}, Lcom/android/camera/module/loader/camera2/Camera2DataContainer;->getUltraWideCameraId()I
-+
-+    move-result v1
-+
-+    if-ne v0, v1, :cond_uw_sat
-+
-+    sget v0, Lcom/android/camera/HybridZoomingSystem;->FLOAT_ZOOM_RATIO_ULTR:F
-+
-+    div-float/2addr p1, v0
-+
-+    iget-object v0, p0, Lcom/android/camera/module/BaseModule;->mCameraCapabilities:Lcom/android/camera2/CameraCapabilities;
-+
-+    invoke-virtual {v0}, Lcom/android/camera2/CameraCapabilities;->getMaxZoomRatio()F
-+
-+    move-result v0
-+
-+    const/high16 v1, 0x3f800000    # 1.0f
-+
-+    invoke-static {p1, v1, v0}, Lcom/android/camera/HybridZoomingSystem;->clamp(FFF)F
-+
-+    move-result p1
-+
-+    return p1
-+
-+    :cond_uw_sat
-+    sget-boolean v0, Lcom/android/camera/HybridZoomingSystem;->IS_3_OR_MORE_SAT:Z
-+
-     if-eqz v0, :cond_a
- 
-     invoke-direct {p0}, Lcom/android/camera/module/BaseModule;->isZoomRatioConversionRequired()Z
 diff --git a/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali b/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali
-index b0d5098e..52572133 100644
+index b0d5098e..daca758f 100644
 --- a/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali
 +++ b/smali/com/android/camera/module/loader/camera2/Camera2DataContainer.smali
-@@ -665,6 +665,41 @@
+@@ -665,6 +665,30 @@
  
      if-eq p2, v5, :cond_4
  
-+    const/16 v4, 0xa3
-+
-+    if-eq p2, v4, :cond_uw_0
-+
-+    const/16 v4, 0xa1
-+
-+    if-eq p2, v4, :cond_uw_0
-+
-+    if-ne p2, v1, :cond_uw_1
-+
-+    :cond_uw_0
 +    :try_start_uw
 +    invoke-static {p2}, Lcom/android/camera/CameraSettings;->getRetainZoom(I)F
 +
